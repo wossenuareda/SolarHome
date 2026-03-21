@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 16, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/wosse/OneDrive/Desktop/SolarHome/src/pages/api/projects/list.ts"],"sourcesContent":["import type { NextApiRequest, NextApiResponse } from 'next';\r\n\r\nconst DB_KEY = 'solarhome_preview_projects';\r\nfunction readDB() { try { return JSON.parse(process.env[DB_KEY] || '[]'); } catch { return []; } }\r\n\r\nexport default async function handler(req: NextApiRequest, res: NextApiResponse) {\r\n  const projects = readDB();\r\n  return res.status(200).json({ projects: projects.filter((p: any) => !p.archived) });\r\n}\r\n\r\n"],"names":["DB_KEY","readDB","JSON","parse","process","env","handler","req","res","projects","status","json","filter","p","archived"],"mappings":";;;;AAEA,MAAMA,SAAS;AACf,SAASC;IAAW,IAAI;QAAE,OAAOC,KAAKC,KAAK,CAACC,QAAQC,GAAG,CAACL,OAAO,IAAI;IAAO,EAAE,OAAM;QAAE,OAAO,EAAE;IAAE;AAAE;AAElF,eAAeM,QAAQC,GAAmB,EAAEC,GAAoB;IAC7E,MAAMC,WAAWR;IACjB,OAAOO,IAAIE,MAAM,CAAC,KAAKC,IAAI,CAAC;QAAEF,UAAUA,SAASG,MAAM,CAAC,CAACC,IAAW,CAACA,EAAEC,QAAQ;IAAE;AACnF"}}]
-}
