@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/wosse/OneDrive/Desktop/SolarHome/src/lib/analytics.ts"],"sourcesContent":["/* src/lib/analytics.ts\n   No-op analytics stub for local development.\n   Keeps the same exported functions so other modules don't change.\n*/\nexport function initAnalytics() {\n  // no-op in local preview\n  return;\n}\n\nexport function track(event: string, props?: Record<string, any>) {\n  // no-op in local preview\n  return;\n}\r\n"],"names":["initAnalytics","track","event","props"],"mappings":"AAAA;;;AAGA;;;;;;AACO,SAASA;IACd,yBAAyB;IACzB;AACF;AAEO,SAASC,MAAMC,KAAa,EAAEC,KAA2B;IAC9D,yBAAyB;IACzB;AACF"}},
+    {"offset": {"line": 31, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/wosse/OneDrive/Desktop/SolarHome/src/pages/_app.tsx"],"sourcesContent":["import '../styles/globals.css';\r\nimport type { AppProps } from 'next/app';\r\nimport { useEffect } from 'react';\r\nimport { initAnalytics } from '../lib/analytics';\r\n\r\nexport default function App({ Component, pageProps }: AppProps) {\r\n  useEffect(() => {\r\n    initAnalytics();\r\n  }, []);\r\n  return <Component {...pageProps} />;\r\n}\r\n\r\n"],"names":["App","Component","pageProps"],"mappings":";;;;;AAEA;AACA;;;;;AAEe,SAASA,IAAI,EAAEC,SAAS,EAAEC,SAAS,EAAY;IAC5D,IAAA,gHAAS,EAAC;QACR,IAAA,iIAAa;IACf,GAAG,EAAE;IACL,qBAAO,qKAACD;QAAW,GAAGC,SAAS;;;;;;AACjC"}}]
+}

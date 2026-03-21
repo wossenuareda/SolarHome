@@ -1,0 +1,621 @@
+*** Begin Patch
+*** Add File: package.json
++{
++  "name": "solar-home-system-planner-mvp",
++  "version": "0.1.0",
++  "private": true,
++  "scripts": {
++    "dev": "next dev -p 3000",
++    "build": "next build",
++    "start": "next start -p 3000",
++    "lint": "eslint . --ext .ts,.tsx --max-warnings=0 || true",
++    "type-check": "tsc --noEmit",
++    "test": "jest --passWithNoTests",
++    "migrate:testdb": "node scripts/migrate_test_db.js"
++  },
++  "dependencies": {
++    "@hookform/resolvers": "^3.0.0",
++    "@supabase/supabase-js": "^2.0.0",
++    "next": "14.0.0",
++    "posthog-js": "^2.0.0",
++    "pdf-lib": "^1.17.1",
++    "react": "18.2.0",
++    "react-dom": "18.2.0",
++    "react-hook-form": "^7.0.0",
++    "zod": "^3.0.0",
++    "uuid": "^9.0.0"
++  },
++  "devDependencies": {
++    "@types/node": "20.0.0",
++    "@types/react": "18.0.0",
++    "@types/react-dom": "18.0.0",
++    "eslint": "^8.0.0",
++    "jest": "^29.0.0",
++    "ts-jest": "^29.0.0",
++    "typescript": "5.0.0"
++  }
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: tsconfig.json
++{
++  "compilerOptions": {
++    "target": "ES2020",
++    "lib": ["dom", "dom.iterable", "es2020"],
++    "allowJs": false,
++    "skipLibCheck": true,
++    "strict": true,
++    "forceConsistentCasingInFileNames": true,
++    "noEmit": true,
++    "esModuleInterop": true,
++    "module": "ESNext",
++    "moduleResolution": "Node",
++    "resolveJsonModule": true,
++    "isolatedModules": true,
++    "jsx": "react-jsx",
++    "baseUrl": ".",
++    "paths": {
++      "@/*": ["./src/*"]
++    }
++  },
++  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
++  "exclude": ["node_modules"]
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: next.config.js
++/** @type {import('next').NextConfig} */
++const nextConfig = {
++  reactStrictMode: true,
++  swcMinify: true
++};
++module.exports = nextConfig;
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/_app.tsx
++import '../styles/globals.css';
++import type { AppProps } from 'next/app';
++import { useEffect } from 'react';
++import { initAnalytics } from '../lib/analytics';
++
++export default function App({ Component, pageProps }: AppProps) {
++  useEffect(() => {
++    initAnalytics();
++  }, []);
++  return <Component {...pageProps} />;
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/index.tsx
++import React from 'react';
++import SolarHomeSystemPlanner from '../components/SolarHomeSystemPlanner';
++import MyProjectsDashboard from '../components/MyProjectsDashboard';
++
++export default function Home() {
++  return (
++    <div style={{ padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }}>
++      <header style={{ marginBottom: 20 }}>
++        <h1 style={{ margin: 0 }}>SolarHome Planner</h1>
++        <p style={{ marginTop: 6, color: '#555' }}>
++          Estimate panels, batteries, and costs. Save projects and download a PDF.
++        </p>
++      </header>
++
++      <main style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 20 }}>
++        <SolarHomeSystemPlanner />
++        <MyProjectsDashboard onOpenProject={(id) => {
++          console.log('Open project', id);
++          alert('Open project ' + id + ' (preview stub)');
++        }} />
++      </main>
++    </div>
++  );
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/components/SolarHomeSystemPlanner.tsx
++import React, { useMemo, useState } from "react";
++import { useForm, useFieldArray } from "react-hook-form";
++import { z } from "zod";
++import { saveProjectCloud, downloadPdf } from "../lib/cloud";
++import { useAuthStub } from "../lib/useAuthStub";
++
++const ProjectSchema = z.object({
++  projectName: z.string().min(1),
++  appliances: z.array(z.object({
++    name: z.string(),
++    watts: z.number(),
++    qty: z.number(),
++    hours: z.number()
++  })),
++  sunHours: z.number(),
++  autonomyDays: z.number(),
++  systemVoltage: z.number(),
++  panelWattage: z.number(),
++  batteryUnitAh: z.number(),
++  designMargin: z.number(),
++  panelUnitCost: z.number(),
++  batteryUnitCost: z.number(),
++  inverterUnitCost: z.number(),
++  controllerUnitCost: z.number(),
++  bosPercent: z.number(),
++  installationPercent: z.number()
++});
++
++type FormValues = z.infer<typeof ProjectSchema>;
++
++export default function SolarHomeSystemPlanner() {
++  const { user, login, logout } = useAuthStub();
++  const [lastCloudProjectId, setLastCloudProjectId] = useState<string | null>(null);
++  const [saving, setSaving] = useState(false);
++
++  const { register, control, handleSubmit, watch } = useForm<FormValues>({
++    defaultValues: {
++      projectName: "My Solar Plan",
++      appliances: [{ name: "LED Bulb", watts: 10, qty: 4, hours: 5 }],
++      sunHours: 5,
++      autonomyDays: 1,
++      systemVoltage: 24,
++      panelWattage: 300,
++      batteryUnitAh: 200,
++      designMargin: 20,
++      panelUnitCost: 120,
++      batteryUnitCost: 500,
++      inverterUnitCost: 300,
++      controllerUnitCost: 150,
++      bosPercent: 20,
++      installationPercent: 10
++    }
++  });
++
++  const { fields, append, remove } = useFieldArray({ control, name: "appliances" });
++  const watched = watch();
++
++  const computeTotals = useMemo(() => {
++    const dailyWh = (watched.appliances || []).reduce((s, a) => s + (a.watts * a.qty * a.hours), 0);
++    const recommendedPVW = Math.ceil((dailyWh / (watched.sunHours || 1)) * (1 + (watched.designMargin || 0) / 100));
++    const totalEstimatedCost = (watched.panelUnitCost || 0) * Math.ceil(recommendedPVW / (watched.panelWattage || 300));
++    return { dailyWh, recommendedPVW, totalEstimatedCost, numberOfPanels: Math.ceil(recommendedPVW / (watched.panelWattage || 300)) };
++  }, [watched]);
++
++  const onSaveLocal = (data: FormValues) => {
++    localStorage.setItem('solarhome-local', JSON.stringify({ data, savedAt: new Date().toISOString() }));
++    alert('Saved on this device');
++  };
++
++  const onSaveCloud = async (data: FormValues) => {
++    if (!user) { alert('Sign in (stub) to save to cloud'); return; }
++    setSaving(true);
++    try {
++      const res = await saveProjectCloud({ ...data, totals: computeTotals });
++      setLastCloudProjectId(res.project.id);
++      alert('Saved to cloud');
++    } catch (err: any) {
++      console.error(err);
++      alert('Cloud save failed: ' + (err?.message ?? 'unknown'));
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  return (
++    <div style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}>
++      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
++        <h2 style={{ margin: 0 }}>Planner</h2>
++        <div>
++          {user ? (
++            <>
++              <span style={{ marginRight: 8 }}>{user.email}</span>
++              <button onClick={logout}>Sign out</button>
++            </>
++          ) : (
++            <button onClick={login}>Sign in (stub)</button>
++          )}
++        </div>
++      </div>
++
++      <form onSubmit={handleSubmit(onSaveLocal)}>
++        <div style={{ marginBottom: 8 }}>
++          <label>Project name</label>
++          <input {...register('projectName')} style={{ width: '100%' }} />
++        </div>
++
++        <div>
++          <h4>Appliances</h4>
++          {fields.map((f, i) => (
++            <div key={f.id} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
++              <input {...register(`appliances.${i}.name` as const)} placeholder="Name" />
++              <input type="number" {...register(`appliances.${i}.watts` as const)} placeholder="Watts" />
++              <input type="number" {...register(`appliances.${i}.qty` as const)} placeholder="Qty" />
++              <input type="number" {...register(`appliances.${i}.hours` as const)} placeholder="Hours/day" />
++              <button type="button" onClick={() => remove(i)}>Remove</button>
++            </div>
++          ))}
++          <button type="button" onClick={() => append({ name: 'New', watts: 100, qty: 1, hours: 1 })}>Add</button>
++        </div>
++
++        <div style={{ marginTop: 12 }}>
++          <button type="submit">Save on this device</button>
++          <button type="button" disabled={!user || saving} onClick={handleSubmit(onSaveCloud)} style={{ marginLeft: 8 }}>
++            {saving ? 'Saving...' : user ? 'Save to my account' : 'Sign in to save'}
++          </button>
++          {lastCloudProjectId && (
++            <button type="button" onClick={() => downloadPdf(lastCloudProjectId)} style={{ marginLeft: 8 }}>
++              Download PDF
++            </button>
++          )}
++        </div>
++      </form>
++
++      <aside style={{ marginTop: 16, padding: 12, background: '#fafafa', borderRadius: 6 }}>
++        <div><strong>Daily Wh</strong> {computeTotals.dailyWh}</div>
++        <div><strong>Recommended PV W</strong> {computeTotals.recommendedPVW}</div>
++        <div><strong>Panels</strong> {computeTotals.numberOfPanels}</div>
++        <div><strong>Estimated cost</strong> ${computeTotals.totalEstimatedCost}</div>
++      </aside>
++    </div>
++  );
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/components/MyProjectsDashboard.tsx
++import React, { useEffect, useState } from "react";
++import { listProjects, downloadPdf } from "../lib/cloud";
++import { useAuthStub } from "../lib/useAuthStub";
++
++export default function MyProjectsDashboard({ onOpenProject }: { onOpenProject: (id: string) => void }) {
++  const { user } = useAuthStub();
++  const [projects, setProjects] = useState<any[]>([]);
++  const [loading, setLoading] = useState(false);
++
++  const load = async () => {
++    if (!user) return;
++    setLoading(true);
++    try {
++      const res = await listProjects();
++      setProjects(res.projects || []);
++    } catch (err) {
++      console.error(err);
++      alert('Failed to load projects');
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  useEffect(() => { load(); }, [user]);
++
++  const archive = async (id: string) => {
++    const r = await fetch('/api/projects/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
++    if (!r.ok) { alert('Archive failed'); return; }
++    await load();
++  };
++
++  if (!user) return <div style={{ padding: 12 }}>Sign in to view your projects</div>;
++
++  return (
++    <div style={{ background: '#fff', padding: 12, borderRadius: 8 }}>
++      <h3>My Projects</h3>
++      {loading && <div>Loading...</div>}
++      {!loading && projects.length === 0 && <div>No projects yet</div>}
++      {projects.map(p => (
++        <div key={p.id} style={{ borderTop: '1px solid #eee', paddingTop: 8, marginTop: 8 }}>
++          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
++            <div>
++              <div style={{ fontWeight: 600 }}>{p.name}</div>
++              <div style={{ color: '#666', fontSize: 12 }}>{p.updated_at ? new Date(p.updated_at).toLocaleString() : ''}</div>
++            </div>
++            <div style={{ display: 'flex', gap: 8 }}>
++              <button onClick={() => onOpenProject(p.id)}>Open</button>
++              <button onClick={() => downloadPdf(p.id)}>PDF</button>
++              <button onClick={() => archive(p.id)}>Archive</button>
++            </div>
++          </div>
++        </div>
++      ))}
++    </div>
++  );
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/lib/cloud.ts
++export type CloudProject = { id: string; name: string; totals?: any; created_at?: string; updated_at?: string; archived?: boolean };
++
++export async function saveProjectCloud(payload: any): Promise<{ project: CloudProject }> {
++  const res = await fetch('/api/projects/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
++  if (!res.ok) throw new Error('Save failed');
++  return res.json();
++}
++
++export async function listProjects(): Promise<{ projects: CloudProject[] }> {
++  const res = await fetch('/api/projects/list');
++  if (!res.ok) throw new Error('List failed');
++  return res.json();
++}
++
++export function downloadPdf(projectId: string) {
++  const url = `/api/projects/pdf?id=${encodeURIComponent(projectId)}`;
++  window.open(url, '_blank');
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/lib/useAuthStub.ts
++import { useEffect, useState } from 'react';
++
++type User = { id: string; email: string } | null;
++
++export function useAuthStub() {
++  const [user, setUser] = useState<User>(null);
++  useEffect(() => {
++    const raw = localStorage.getItem('solarhome-auth-stub');
++    if (raw) setUser(JSON.parse(raw));
++  }, []);
++  const login = () => {
++    const u = { id: 'stub-user-1', email: 'demo@example.com' };
++    localStorage.setItem('solarhome-auth-stub', JSON.stringify(u));
++    setUser(u);
++  };
++  const logout = () => {
++    localStorage.removeItem('solarhome-auth-stub');
++    setUser(null);
++  };
++  return { user, login, logout };
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/lib/analytics.ts
++import posthog from 'posthog-js';
++
++const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
++const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://app.posthog.com';
++
++export function initAnalytics() {
++  if (!KEY || typeof window === 'undefined') return;
++  if ((posthog as any).__loaded) return;
++  posthog.init(KEY, { api_host: HOST, capture_pageview: true });
++}
++
++export function track(event: string, props?: Record<string, any>) {
++  if (!KEY) return;
++  posthog.capture(event, props);
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/api/projects/save.ts
++import type { NextApiRequest, NextApiResponse } from 'next';
++import { v4 as uuidv4 } from 'uuid';
++
++/**
++ * Minimal in-memory fallback for preview.
++ * In production replace with Supabase server client using SUPABASE_SERVICE_ROLE_KEY.
++ */
++const DB_KEY = 'solarhome_preview_projects';
++
++function readDB() {
++  try { return JSON.parse(process.env[DB_KEY] || '[]'); } catch { return []; }
++}
++function writeDB(arr: any[]) { process.env[DB_KEY] = JSON.stringify(arr); }
++
++export default async function handler(req: NextApiRequest, res: NextApiResponse) {
++  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
++  const body = req.body;
++  const projects = readDB();
++  const id = uuidv4();
++  const now = new Date().toISOString();
++  const project = { id, name: body.projectName || 'Untitled', payload: body, totals: body.totals || null, created_at: now, updated_at: now, archived: false };
++  projects.push(project);
++  writeDB(projects);
++  return res.status(201).json({ project });
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/api/projects/list.ts
++import type { NextApiRequest, NextApiResponse } from 'next';
++
++const DB_KEY = 'solarhome_preview_projects';
++function readDB() { try { return JSON.parse(process.env[DB_KEY] || '[]'); } catch { return []; } }
++
++export default async function handler(req: NextApiRequest, res: NextApiResponse) {
++  const projects = readDB();
++  return res.status(200).json({ projects: projects.filter((p: any) => !p.archived) });
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/api/projects/archive.ts
++import type { NextApiRequest, NextApiResponse } from 'next';
++
++const DB_KEY = 'solarhome_preview_projects';
++function readDB() { try { return JSON.parse(process.env[DB_KEY] || '[]'); } catch { return []; } }
++function writeDB(arr: any[]) { process.env[DB_KEY] = JSON.stringify(arr); }
++
++export default async function handler(req: NextApiRequest, res: NextApiResponse) {
++  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
++  const { id } = req.body;
++  if (!id) return res.status(400).json({ error: 'Missing id' });
++  const projects = readDB();
++  const idx = projects.findIndex((p: any) => p.id === id);
++  if (idx === -1) return res.status(404).json({ error: 'Not found' });
++  projects[idx].archived = true;
++  projects[idx].archived_at = new Date().toISOString();
++  writeDB(projects);
++  return res.status(200).json({ success: true });
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: src/pages/api/projects/pdf.ts
++import type { NextApiRequest, NextApiResponse } from 'next';
++import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
++
++const DB_KEY = 'solarhome_preview_projects';
++function readDB() { try { return JSON.parse(process.env[DB_KEY] || '[]'); } catch { return []; } }
++
++export default async function handler(req: NextApiRequest, res: NextApiResponse) {
++  const id = String(req.query.id || '');
++  if (!id) return res.status(400).send('Missing id');
++  const projects = readDB();
++  const project = projects.find((p: any) => p.id === id);
++  if (!project) return res.status(404).send('Not found');
++
++  const pdfDoc = await PDFDocument.create();
++  const page = pdfDoc.addPage([612, 792]);
++  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
++  page.drawText('SolarHome Planner Project', { x: 40, y: 740, size: 18, font, color: rgb(0.04, 0.47, 0.45) });
++  page.drawText(`Name: ${project.name}`, { x: 40, y: 700, size: 12, font });
++  page.drawText(`Created: ${project.created_at}`, { x: 40, y: 680, size: 10, font });
++  page.drawText(`Estimated cost: ${project.totals?.totalEstimatedCost ?? 'N/A'}`, { x: 40, y: 660, size: 12, font });
++
++  const pdfBytes = await pdfDoc.save();
++  res.setHeader('Content-Type', 'application/pdf');
++  res.setHeader('Content-Disposition', `attachment; filename="${project.name}.pdf"`);
++  return res.send(Buffer.from(pdfBytes));
++}
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: supabase/migrations/001_create_projects_and_bom.sql
++create extension if not exists pgcrypto;
++create table if not exists projects (
++  id uuid primary key default gen_random_uuid(),
++  user_id uuid,
++  name text not null,
++  payload jsonb not null,
++  totals jsonb,
++  public boolean default false,
++  created_at timestamptz default now(),
++  updated_at timestamptz default now(),
++  archived boolean default false,
++  archived_at timestamptz
++);
++create table if not exists bom_items (
++  id uuid primary key default gen_random_uuid(),
++  project_id uuid references projects(id) on delete cascade,
++  label text not null,
++  qty int not null,
++  spec text,
++  unit_cost numeric(12,2),
++  created_at timestamptz default now(),
++  archived boolean default false,
++  archived_at timestamptz
++);
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: scripts/migrate_test_db.js
++// scripts/migrate_test_db.js
++const fs = require('fs');
++const path = require('path');
++const { Client } = require('pg');
++
++async function run() {
++  const client = new Client({
++    host: process.env.TEST_PG_HOST || 'localhost',
++    port: Number(process.env.TEST_PG_PORT || 5432),
++    database: process.env.TEST_PG_DB || 'postgres',
++    user: process.env.TEST_PG_USER || 'postgres',
++    password: process.env.TEST_PG_PASSWORD || ''
++  });
++  await client.connect();
++  try {
++    const migrationsDir = path.join(__dirname, '..', 'supabase', 'migrations');
++    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
++    for (const f of files) {
++      const sql = fs.readFileSync(path.join(migrationsDir, f), 'utf8');
++      console.log('Applying', f);
++      await client.query(sql);
++    }
++    console.log('Migrations applied');
++  } catch (err) {
++    console.error(err);
++  } finally {
++    await client.end();
++  }
++}
++
++if (require.main === module) run();
++module.exports = run;
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: scripts/bootstrap.sh
++#!/usr/bin/env bash
++set -euo pipefail
++echo "Install deps"
++npm ci
++echo "Run lint and type-check"
++npm run lint || true
++npm run type-check || true
++echo "Dev server not started by bootstrap. Run: npm run dev"
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: styles/globals.css
++/* Minimal global styles for preview */
++html,body,#__next { height: 100%; }
++body { margin: 0; background: #f5f5f5; color: #222; }
++input,button,select,textarea { font-family: inherit; }
++
+*** End Patch
++
+*** Begin Patch
+*** Add File: README.md
++# SolarHome Planner — MVP (Preview)
++
++This patch creates a minimal Next.js TypeScript MVP for the SolarHome Planner.
++
++## Quick start
++
++1. Apply the patch:
++
++```bash
++# save the patch as solarhome-mvp.diff
++git apply solarhome-mvp.diff
++```
++
++2. Install:
++
++```bash
++npm ci
++```
++
++3. Run dev server:
++
++```bash
++npm run dev
++```
++
++4. Open `http://localhost:3000`
++
++## Notes
++- API routes use an in-memory preview store via `process.env.solarhome_preview_projects`. This is for local preview only.
++- Replace with Supabase server client for production.
++
+*** End Patch
